@@ -1,6 +1,6 @@
 """
 일정 생성 서비스
-Groq API와 최신 LangChain 1.x를 사용하여 맞춤형 일정을 생성합니다.
+Groq API와 LangChain을 사용하여 맞춤형 일정을 생성합니다.
 """
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
@@ -8,15 +8,18 @@ from langchain_core.output_parsers import PydanticOutputParser
 from pydantic import BaseModel, Field
 from typing import List
 import json
+
 from models.schemas import ScheduleItem
 
+
 class ScheduleOutput(BaseModel):
-    schedule_items: List[ScheduleItem] = Field(description="일정 항목 리스트")
+    """LLM 출력 스키마"""
+    scheduleItems: List[ScheduleItem] = Field(description="일정 항목 리스트")
     recommendation: str = Field(description="전체 일정에 대한 조언")
 
 
 class ScheduleGenerator:
-    """일정 생성 클래스 (LangChain 1.x 호환)"""
+    """일정 생성 클래스"""
     
     def __init__(self, api_key: str, model_name: str = "llama-3.3-70b-versatile"):
         """
@@ -49,13 +52,13 @@ class ScheduleGenerator:
             tasks: 처리할 작업 목록
             fixed_times: 고정 시간대 목록
             date: 일정 날짜
-            user_history: 과거 학습 데이터 (메모리 컨텍스트)
+            user_history: 과거 피드백 요약
             
         Returns:
             생성된 일정과 추천사항
         """
         
-        # 프롬프트 템플릿 생성 (최신 langchain_core 사용)
+        # 프롬프트 템플릿 생성
         prompt = ChatPromptTemplate.from_messages([
             ("system", """당신은 '루미'라는 개인 맞춤형 일정 관리 AI입니다. 
 사용자의 성향을 깊이 이해하고, 가장 효율적이고 실현 가능한 일정을 만들어주세요.
@@ -90,7 +93,6 @@ class ScheduleGenerator:
    - 식사 시간, 휴식 시간을 반드시 포함
    - 이동 시간, 준비 시간도 고려
 
-
 {user_history}
 
 {format_instructions}
@@ -106,45 +108,44 @@ class ScheduleGenerator:
 위 정보를 바탕으로 효율적인 일정을 만들어주세요. 
 
 각 일정 항목은 다음 형식으로 작성:
-- start_time: 시작 시간 (HH:MM 형식)
-- end_time: 종료 시간 (HH:MM 형식)
-- task_name: 작업 이름
+- startTime: 시작 시간 (HH:MM 형식)
+- endTime: 종료 시간 (HH:MM 형식)
+- taskName: 작업 이름
 - description: 구체적인 작업 설명
 - reason: 이 시간대에 배치한 이유 (사용자 성향 기반으로 설명)
 
 반드시 JSON 형식으로만 응답해주세요.""")
         ])
         
-        # 포맷 지시사항 가져오기
+        # 포맷 지시사항
         format_instructions = self.parser.get_format_instructions()
         
         # 사용자 히스토리 텍스트 생성
         history_text = ""
         if user_history:
             history_text = f"""
-# 과거 학습 데이터 (이전 피드백 및 선호 패턴)
+# 과거 학습 데이터 (사용자 피드백)
 {user_history}
 
-위 정보를 참고하여 사용자가 선호하는 패턴으로 일정을 만들어주세요.
+위 피드백을 참고하여 사용자가 선호하는 패턴으로 일정을 만들어주세요.
 """
         
-        # JSON 문자열 미리 준비 (포맷팅 시 보기 좋게)
+        # JSON 문자열 미리 준비
         tasks_str = json.dumps(tasks, ensure_ascii=False, indent=2)
         fixed_times_str = json.dumps(fixed_times, ensure_ascii=False, indent=2) if fixed_times else "고정 시간대 없음"
         
-        # 체인 구성: prompt → llm → parser
+        # 체인 구성
         chain = prompt | self.llm | self.parser
         
-        print("🤖 AI가 일정을 생성하는 중...")
+        print(f"🤖 AI 일정 생성 중... (날짜: {date})")
         
         try:
-            # 체인 실행
             result: ScheduleOutput = chain.invoke({
-                "time_preference": "아침형" if user_tendency.get("time_preference") == "morning" else "저녁형",
-                "concentration_level": user_tendency.get("concentration_level", 7),
-                "max_focus_duration": user_tendency.get("max_focus_duration", 90),
-                "sleep_time": user_tendency.get("sleep_time", "23:00"),
-                "wake_time": user_tendency.get("wake_time", "07:00"),
+                "time_preference": "아침형" if user_tendency.get("timePreference") == "morning" else "저녁형",
+                "concentration_level": user_tendency.get("concentrationLevel", 7),
+                "max_focus_duration": user_tendency.get("maxFocusDuration", 90),
+                "sleep_time": user_tendency.get("sleepTime", "23:00"),
+                "wake_time": user_tendency.get("wakeTime", "07:00"),
                 "user_history": history_text,
                 "date": date,
                 "fixed_times_str": fixed_times_str,
@@ -152,51 +153,25 @@ class ScheduleGenerator:
                 "format_instructions": format_instructions
             })
             
-            print("✅ 일정 생성 및 파싱 완료!")
+            print(f"✅ 일정 생성 완료! (항목: {len(result.scheduleItems)}개)")
+            
+            # ScheduleItem 객체를 dict로 변환
             return {
-                "schedule_items": result.schedule_items,
+                "scheduleItems": [item.dict() for item in result.scheduleItems],
                 "recommendation": result.recommendation
             }
             
         except Exception as e:
-            print(f"⚠️ 파싱 또는 생성 오류: {str(e)}")
-            # fallback: 원시 응답에서 JSON 추출 시도
-            try:
-                raw_response = self.llm.invoke(prompt.format_messages(
-                    time_preference="아침형" if user_tendency.get("time_preference") == "morning" else "저녁형",
-                    concentration_level=user_tendency.get("concentration_level", 7),
-                    max_focus_duration=user_tendency.get("max_focus_duration", 90),
-                    sleep_time=user_tendency.get("sleep_time", "23:00"),
-                    wake_time=user_tendency.get("wake_time", "07:00"),
-                    user_history=history_text,
-                    date=date,
-                    fixed_times_str=fixed_times_str,
-                    tasks_str=tasks_str,
-                    format_instructions=format_instructions
-                ))
-                
-                content = raw_response.content
-                start = content.find('{')
-                end = content.rfind('}') + 1
-                if start != -1 and end > start:
-                    json_str = content[start:end]
-                    fallback_result = json.loads(json_str)
-                    return {
-                        "schedule_items": fallback_result.get("schedule_items", []),
-                        "recommendation": fallback_result.get("recommendation", "일정 생성 중 일부 오류가 있었습니다.")
-                    }
-            except:
-                pass
-            
-            # 최종 fallback
+            print(f"⚠️ 파싱 오류: {str(e)}")
+            # Fallback: 기본 응답
             return {
-                "schedule_items": [],
+                "scheduleItems": [],
                 "recommendation": f"일정 생성 중 오류가 발생했습니다. 다시 시도해주세요. (오류: {str(e)})"
             }
     
     def generate_tendency_analysis(self, survey_data: dict) -> str:
         """
-        성향 조사 결과를 분석하고 인사이트를 제공합니다.
+        사용자 성향을 분석하고 인사이트를 제공합니다.
         
         Args:
             survey_data: 성향 조사 데이터
@@ -223,11 +198,11 @@ class ScheduleGenerator:
         print("🤖 성향 분석 중...")
         try:
             response = chain.invoke({
-                "time_preference": "아침형" if survey_data.get("time_preference") == "morning" else "저녁형",
-                "concentration_level": survey_data.get("concentration_level", 7),
-                "max_focus_duration": survey_data.get("max_focus_duration", 90),
-                "sleep_time": survey_data.get("sleep_time", "23:00"),
-                "wake_time": survey_data.get("wake_time", "07:00")
+                "time_preference": "아침형" if survey_data.get("timePreference") == "morning" else "저녁형",
+                "concentration_level": survey_data.get("concentrationLevel", 7),
+                "max_focus_duration": survey_data.get("maxFocusDuration", 90),
+                "sleep_time": survey_data.get("sleepTime", "23:00"),
+                "wake_time": survey_data.get("wakeTime", "07:00")
             })
             print("✅ 성향 분석 완료!")
             return response.content
