@@ -1,5 +1,5 @@
 """
-루미 AI 엔진 - FastAPI 서버
+티모 AI 엔진 - FastAPI 서버
 Spring Boot의 요청만 처리하는 AI 전용 엔진입니다.
 """
 from fastapi import FastAPI, HTTPException, Header
@@ -18,7 +18,7 @@ settings = get_settings()
 
 # FastAPI 앱 생성
 app = FastAPI(
-    title="루미 AI 엔진",
+    title="티모 AI 엔진",
     description="Spring Boot 백엔드를 위한 AI 일정 생성 엔진",
     version="1.0.0",
     docs_url="/docs",
@@ -41,7 +41,7 @@ schedule_generator = ScheduleGenerator(
 )
 
 print("=" * 60)
-print("🚀 루미 AI 엔진 시작!")
+print("🚀 티모 AI 엔진 시작!")
 print("=" * 60)
 print(f"📊 모델: {settings.model_name}")
 print(f"🌡️  Temperature: {settings.temperature}")
@@ -55,7 +55,7 @@ print("=" * 60)
 def root():
     """서비스 상태 확인"""
     return {
-        "service": "루미 AI 엔진",
+        "service": "티모 AI 엔진",
         "status": "running",
         "version": "1.0.0",
         "description": "Spring Boot 백엔드를 위한 AI 일정 생성 서비스",
@@ -72,7 +72,7 @@ def health_check():
     """헬스 체크"""
     return {
         "status": "ok",
-        "service": "lumi-ai-engine",
+        "service": "timo-ai-engine",
         "model": settings.model_name
     }
 
@@ -108,13 +108,13 @@ async def generate_schedule(
     
     try:
         # 성향을 dict로 변환
-        tendency_dict = request.userTendency.dict()
+        tendency_dict = request.userTendency.model_dump()
         
         # AI 일정 생성
         result = schedule_generator.generate_schedule(
             user_tendency=tendency_dict,
-            tasks=[task.dict() for task in request.tasks],
-            fixed_times=[ft.dict() for ft in request.fixedTimes],
+            tasks=[task.model_dump() for task in request.tasks],
+            fixed_times=[ft.model_dump() for ft in request.fixedTimes],
             date=request.date,
             user_history=request.userHistory or ""
         )
@@ -158,7 +158,7 @@ async def analyze_tendency(
     
     try:
         analysis = schedule_generator.generate_tendency_analysis(
-            request.userTendency.dict()
+            request.userTendency.model_dump()
         )
         
         print(f"✅ 성향 분석 완료!")

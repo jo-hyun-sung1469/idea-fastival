@@ -29,3 +29,5 @@ class Settings:
 def get_settings() -> Settings:
     """설정 인스턴스를 캐싱하여 반환 (싱글톤 패턴)"""
     return Settings()
+
+#config.py
