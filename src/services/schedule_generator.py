@@ -60,7 +60,7 @@ class ScheduleGenerator:
         
         # 프롬프트 템플릿 생성
         prompt = ChatPromptTemplate.from_messages([
-            ("system", """당신은 '루미'라는 개인 맞춤형 일정 관리 AI입니다. 
+            ("system", """당신은 '티모'라는 개인 맞춤형 일정 관리 AI입니다. 
 사용자의 성향을 깊이 이해하고, 가장 효율적이고 실현 가능한 일정을 만들어주세요.
 
 # 사용자 성향 정보
@@ -84,9 +84,10 @@ class ScheduleGenerator:
    - 고정 시간대는 절대 침범하지 않음
    - 고정 시간대 전후에 이동/준비 시간 고려
 
-4. **우선순위 반영**
-   - 우선순위가 높은 작업(4-5)을 먼저 처리
-   - 우선순위가 높고 집중이 필요한 작업은 최적 시간대에 배치
+4. **작업 시간 관리**
+   - 예상 소요 시간을 고려하여 적절히 배치
+   - 긴 작업은 여러 세션으로 나누기
+   - 작업 간 충분한 휴식 시간 확보
 
 5. **현실성**
    - 하루에 너무 많은 작업을 배치하지 않음
@@ -157,7 +158,7 @@ class ScheduleGenerator:
             
             # ScheduleItem 객체를 dict로 변환
             return {
-                "scheduleItems": [item.dict() for item in result.scheduleItems],
+                "scheduleItems": [item.model_dump() for item in result.scheduleItems],
                 "recommendation": result.recommendation
             }
             

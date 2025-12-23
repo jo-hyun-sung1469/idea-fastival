@@ -68,3 +68,5 @@ class TendencyAnalysisRequest(BaseModel):
 class TendencyAnalysisResponse(BaseModel):
     """성향 분석 응답"""
     analysis: str = Field(..., description="AI 분석 결과")
+
+#schemas.py
