@@ -1,5 +1,5 @@
 """
-루미 AI 설정 파일
+티모 AI 설정 파일
 FastAPI는 Spring Boot의 요청만 처리합니다
 """
 import os

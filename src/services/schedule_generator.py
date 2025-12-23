@@ -9,13 +9,13 @@ from pydantic import BaseModel, Field
 from typing import List
 import json
 
-from models.schemas import ScheduleItem
+from models.schemas import ScheduleDTO
 
 
 class ScheduleOutput(BaseModel):
     """LLM 출력 스키마"""
-    scheduleItems: List[ScheduleItem] = Field(description="일정 항목 리스트")
-    recommendation: str = Field(description="전체 일정에 대한 조언")
+    schedules: List[ScheduleDTO] = Field(description="일정 항목 리스트")
+    recommend: str = Field(description="전체 일정에 대한 조언")
 
 
 class ScheduleGenerator:
@@ -60,7 +60,7 @@ class ScheduleGenerator:
         
         # 프롬프트 템플릿 생성
         prompt = ChatPromptTemplate.from_messages([
-            ("system", """당신은 '루미'라는 개인 맞춤형 일정 관리 AI입니다. 
+            ("system", """당신은 '티모'라는 개인 맞춤형 일정 관리 AI입니다. 
 사용자의 성향을 깊이 이해하고, 가장 효율적이고 실현 가능한 일정을 만들어주세요.
 
 # 사용자 성향 정보
@@ -84,9 +84,10 @@ class ScheduleGenerator:
    - 고정 시간대는 절대 침범하지 않음
    - 고정 시간대 전후에 이동/준비 시간 고려
 
-4. **우선순위 반영**
-   - 우선순위가 높은 작업(4-5)을 먼저 처리
-   - 우선순위가 높고 집중이 필요한 작업은 최적 시간대에 배치
+4. **작업 시간 관리**
+   - 예상 소요 시간을 고려하여 적절히 배치
+   - 긴 작업은 여러 세션으로 나누기
+   - 작업 간 충분한 휴식 시간 확보
 
 5. **현실성**
    - 하루에 너무 많은 작업을 배치하지 않음
@@ -108,11 +109,9 @@ class ScheduleGenerator:
 위 정보를 바탕으로 효율적인 일정을 만들어주세요. 
 
 각 일정 항목은 다음 형식으로 작성:
-- startTime: 시작 시간 (HH:MM 형식)
-- endTime: 종료 시간 (HH:MM 형식)
-- taskName: 작업 이름
-- description: 구체적인 작업 설명
-- reason: 이 시간대에 배치한 이유 (사용자 성향 기반으로 설명)
+- time: 시작 시간 (HH:MM 형식)
+- timeTaken: 종료 시간 (HH:MM 형식)
+- title: 작업 제목
 
 반드시 JSON 형식으로만 응답해주세요.""")
         ])
@@ -141,11 +140,11 @@ class ScheduleGenerator:
         
         try:
             result: ScheduleOutput = chain.invoke({
-                "time_preference": "아침형" if user_tendency.get("timePreference") == "morning" else "저녁형",
-                "concentration_level": user_tendency.get("concentrationLevel", 7),
-                "max_focus_duration": user_tendency.get("maxFocusDuration", 90),
-                "sleep_time": user_tendency.get("sleepTime", "23:00"),
-                "wake_time": user_tendency.get("wakeTime", "07:00"),
+                "time_preference": "아침형" if user_tendency.get("morningNight") == "morning" else "저녁형",
+                "concentration_level": user_tendency.get("focus", 7),
+                "max_focus_duration": user_tendency.get("maxFocus", 90),
+                "sleep_time": user_tendency.get("sleep", "23:00"),
+                "wake_time": user_tendency.get("rising", "07:00"),
                 "user_history": history_text,
                 "date": date,
                 "fixed_times_str": fixed_times_str,
@@ -153,20 +152,20 @@ class ScheduleGenerator:
                 "format_instructions": format_instructions
             })
             
-            print(f"✅ 일정 생성 완료! (항목: {len(result.scheduleItems)}개)")
+            print(f"✅ 일정 생성 완료! (항목: {len(result.schedules)}개)")
             
-            # ScheduleItem 객체를 dict로 변환
+            # ScheduleDTO 객체를 dict로 변환
             return {
-                "scheduleItems": [item.dict() for item in result.scheduleItems],
-                "recommendation": result.recommendation
+                "schedules": [item.model_dump() for item in result.schedules],
+                "recommend": result.recommend
             }
             
         except Exception as e:
             print(f"⚠️ 파싱 오류: {str(e)}")
             # Fallback: 기본 응답
             return {
-                "scheduleItems": [],
-                "recommendation": f"일정 생성 중 오류가 발생했습니다. 다시 시도해주세요. (오류: {str(e)})"
+                "schedules": [],
+                "recommend": f"일정 생성 중 오류가 발생했습니다. 다시 시도해주세요. (오류: {str(e)})"
             }
     
     def generate_tendency_analysis(self, survey_data: dict) -> str:
@@ -198,14 +197,16 @@ class ScheduleGenerator:
         print("🤖 성향 분석 중...")
         try:
             response = chain.invoke({
-                "time_preference": "아침형" if survey_data.get("timePreference") == "morning" else "저녁형",
-                "concentration_level": survey_data.get("concentrationLevel", 7),
-                "max_focus_duration": survey_data.get("maxFocusDuration", 90),
-                "sleep_time": survey_data.get("sleepTime", "23:00"),
-                "wake_time": survey_data.get("wakeTime", "07:00")
+                "time_preference": "아침형" if survey_data.get("morningNight") == "morning" else "저녁형",
+                "concentration_level": survey_data.get("focus", 7),
+                "max_focus_duration": survey_data.get("maxFocus", 90),
+                "sleep_time": survey_data.get("sleep", "23:00"),
+                "wake_time": survey_data.get("rising", "07:00")
             })
             print("✅ 성향 분석 완료!")
             return response.content
         except Exception as e:
             print(f"⚠️ 성향 분석 오류: {str(e)}")
             return "성향 분석 중 일시적인 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+        
+#endtime

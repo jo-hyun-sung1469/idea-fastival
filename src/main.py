@@ -1,10 +1,12 @@
 """
-루미 AI 엔진 - FastAPI 서버
+티모 AI 엔진 - FastAPI 서버
 Spring Boot의 요청만 처리하는 AI 전용 엔진입니다.
 """
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from typing import Optional
+import json
 
 from config import get_settings
 from services.schedule_generator import ScheduleGenerator
@@ -18,7 +20,7 @@ settings = get_settings()
 
 # FastAPI 앱 생성
 app = FastAPI(
-    title="루미 AI 엔진",
+    title="티모 AI 엔진",
     description="Spring Boot 백엔드를 위한 AI 일정 생성 엔진",
     version="1.0.0",
     docs_url="/docs",
@@ -41,7 +43,7 @@ schedule_generator = ScheduleGenerator(
 )
 
 print("=" * 60)
-print("🚀 루미 AI 엔진 시작!")
+print("🚀 티모 AI 엔진 시작!")
 print("=" * 60)
 print(f"📊 모델: {settings.model_name}")
 print(f"🌡️  Temperature: {settings.temperature}")
@@ -55,7 +57,7 @@ print("=" * 60)
 def root():
     """서비스 상태 확인"""
     return {
-        "service": "루미 AI 엔진",
+        "service": "티모 AI 엔진",
         "status": "running",
         "version": "1.0.0",
         "description": "Spring Boot 백엔드를 위한 AI 일정 생성 서비스",
@@ -72,14 +74,14 @@ def health_check():
     """헬스 체크"""
     return {
         "status": "ok",
-        "service": "lumi-ai-engine",
+        "service": "timo-ai-engine",
         "model": settings.model_name
     }
 
 
-@app.post("/api/ai/generate-schedule", response_model=AIScheduleResponse)
+@app.post("/api/ai/generate-schedule")
 async def generate_schedule(
-    request: AIScheduleRequest,
+    raw_request: Request,
     api_key: Optional[str] = Header(None, alias="X-API-Key")
 ):
     """
@@ -88,7 +90,7 @@ async def generate_schedule(
     Spring Boot에서 이 엔드포인트를 호출합니다.
     
     Args:
-        request: 일정 생성 요청 데이터
+        raw_request: 원본 요청 (디버깅용)
         api_key: API 키 (선택사항, 보안 강화용)
     
     Returns:
@@ -98,32 +100,60 @@ async def generate_schedule(
     if settings.api_key and api_key != settings.api_key:
         raise HTTPException(status_code=403, detail="Invalid API Key")
     
-    print("\n" + "=" * 60)
+    # 원본 요청 바디 출력 (디버깅)
+    try:
+        body = await raw_request.json()
+        print("\n" + "=" * 60)
+        print("📥 스프링부트에서 받은 요청 데이터:")
+        print(json.dumps(body, ensure_ascii=False, indent=2))
+        print("=" * 60)
+        
+        # Pydantic으로 파싱 시도
+        request = AIScheduleRequest(**body)
+        
+    except Exception as e:
+        print(f"❌ 요청 파싱 실패: {e}")
+        print("=" * 60 + "\n")
+        raise HTTPException(status_code=422, detail=f"요청 형식 오류: {str(e)}")
+    
     print(f"📅 AI 일정 생성 요청")
-    print(f"   사용자: {request.userId}")
+    print(f"   사용자: {request.nickname}")
     print(f"   날짜: {request.date}")
-    print(f"   작업 수: {len(request.tasks)}개")
-    print(f"   고정 시간: {len(request.fixedTimes)}개")
+    print(f"   작업 수: {len(request.task)}개")
+    print(f"   고정 시간: {len(request.fixed)}개")
     print("=" * 60)
     
     try:
         # 성향을 dict로 변환
-        tendency_dict = request.userTendency.dict()
+        tendency_dict = request.tendency.model_dump()
         
         # AI 일정 생성
         result = schedule_generator.generate_schedule(
             user_tendency=tendency_dict,
-            tasks=[task.dict() for task in request.tasks],
-            fixed_times=[ft.dict() for ft in request.fixedTimes],
+            tasks=[task.model_dump() for task in request.task],
+            fixed_times=[ft.model_dump() for ft in request.fixed],
             date=request.date,
-            user_history=request.userHistory or ""
+            user_history=request.feed or ""
         )
         
-        print(f"✅ 일정 생성 완료!")
-        print(f"   생성된 일정: {len(result['scheduleItems'])}개")
+        print(f"✅ 일정 생성 완료! (항목: {len(result['schedules'])}개)")
+        
+        # 응답 데이터 생성
+        response_data = AIScheduleResponse(**result)
+        response_dict = response_data.model_dump()
+        
+        # 실제 보내는 응답 출력 (디버깅)
+        print("\n" + "=" * 60)
+        print("📤 스프링부트로 보내는 응답 데이터:")
+        print(json.dumps(response_dict, ensure_ascii=False, indent=2))
         print("=" * 60 + "\n")
         
-        return AIScheduleResponse(**result)
+        # JSONResponse로 명시적으로 반환
+        return JSONResponse(
+            content=response_dict,
+            status_code=200,
+            media_type="application/json"
+        )
         
     except Exception as e:
         print(f"❌ 일정 생성 오류: {e}")
@@ -131,16 +161,16 @@ async def generate_schedule(
         raise HTTPException(status_code=500, detail=f"일정 생성 실패: {str(e)}")
 
 
-@app.post("/api/ai/analyze-tendency", response_model=TendencyAnalysisResponse)
+@app.post("/api/ai/analyze-tendency")
 async def analyze_tendency(
-    request: TendencyAnalysisRequest,
+    raw_request: Request,
     api_key: Optional[str] = Header(None, alias="X-API-Key")
 ):
     """
     사용자 성향 분석
     
     Args:
-        request: 성향 분석 요청
+        raw_request: 원본 요청 (디버깅용)
         api_key: API 키 (선택사항)
     
     Returns:
@@ -150,21 +180,49 @@ async def analyze_tendency(
     if settings.api_key and api_key != settings.api_key:
         raise HTTPException(status_code=403, detail="Invalid API Key")
     
-    print("\n" + "=" * 60)
+    # 원본 요청 바디 출력 (디버깅)
+    try:
+        body = await raw_request.json()
+        print("\n" + "=" * 60)
+        print("📥 성향 분석 요청 데이터:")
+        print(json.dumps(body, ensure_ascii=False, indent=2))
+        print("=" * 60)
+        
+        # Pydantic으로 파싱 시도
+        request = TendencyAnalysisRequest(**body)
+        
+    except Exception as e:
+        print(f"❌ 요청 파싱 실패: {e}")
+        print("=" * 60 + "\n")
+        raise HTTPException(status_code=422, detail=f"요청 형식 오류: {str(e)}")
+    
     print(f"🧠 성향 분석 요청")
-    print(f"   시간대 선호: {request.userTendency.timePreference}")
-    print(f"   집중력: {request.userTendency.concentrationLevel}/10")
+    print(f"   시간대 선호: {request.morningNight}")
+    print(f"   집중력: {request.focus}/10")
     print("=" * 60)
     
     try:
         analysis = schedule_generator.generate_tendency_analysis(
-            request.userTendency.dict()
+            request.model_dump()
         )
         
         print(f"✅ 성향 분석 완료!")
+        
+        response_data = TendencyAnalysisResponse(analysis=analysis)
+        response_dict = response_data.model_dump()
+        
+        # 실제 보내는 응답 출력 (디버깅)
+        print("\n" + "=" * 60)
+        print("📤 성향 분석 응답 데이터:")
+        print(json.dumps(response_dict, ensure_ascii=False, indent=2))
         print("=" * 60 + "\n")
         
-        return TendencyAnalysisResponse(analysis=analysis)
+        # JSONResponse로 명시적으로 반환
+        return JSONResponse(
+            content=response_dict,
+            status_code=200,
+            media_type="application/json"
+        )
         
     except Exception as e:
         print(f"❌ 분석 오류: {e}")
@@ -185,3 +243,5 @@ if __name__ == "__main__":
         port=8000,
         reload=True
     )
+
+#endtime
